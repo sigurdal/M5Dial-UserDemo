@@ -113,11 +113,14 @@ namespace HAL
     {
         /* Buzz */
         // buzz.init(3);
+        ESP_LOGI(TAG, "buzz init");
         buzz.init(HAL_PIN_BUZZER);
 
-        // buzz.tone(4000, 50);
-        // delay(100);
-        // buzz.tone(4000, 50);
+        buzz.tone(400, 50);
+        delay(100);
+        buzz.tone(600, 50);
+        delay(100);
+        buzz.tone(800, 50);
     }
 
     void HAL::init()
@@ -132,6 +135,7 @@ namespace HAL
         /* Init i2c port 0 (for Tp) */
         // i2c_init(I2C_NUM_0, 11, 12, 100000, true);
         i2c_init(I2C_NUM_0, HAL_PIN_TP_I2C_SDA, HAL_PIN_TP_I2C_SCL, 100000, true);
+
 
         /* Display init */
         _display_init();

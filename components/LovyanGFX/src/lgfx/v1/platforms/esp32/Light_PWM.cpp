@@ -18,6 +18,9 @@ Contributors:
 #if defined (ESP_PLATFORM)
 #include <sdkconfig.h>
 
+#include <esp_log.h>
+#include "../../../../../../../main/hal/arduino/esp32-hal-ledc.h"
+
 #include "Light_PWM.hpp"
 
 #if defined ( ARDUINO )
@@ -41,7 +44,9 @@ namespace lgfx
   bool Light_PWM::init(uint8_t brightness)
   {
 
-#if defined ( ARDUINO )
+    ESP_LOGI("light", "PWM INIT");
+
+#if 1 || defined ( ARDUINO )
 
 #if defined ESP_ARDUINO_VERSION
   #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
@@ -49,7 +54,7 @@ namespace lgfx
   #endif   
 #endif
 
-#if defined LEDC_USE_IDF_V5
+#if 1 || defined LEDC_USE_IDF_V5
     ledcAttach(_cfg.pin_bl, _cfg.freq, PWM_BITS); 
     setBrightness(brightness);
 #else
@@ -108,8 +113,8 @@ namespace lgfx
     }
     if (_cfg.invert) duty = (1 << PWM_BITS) - duty;
 
-#if defined ( ARDUINO )
-#if defined LEDC_USE_IDF_V5
+#if 1 || defined ( ARDUINO )
+#if 1 || defined LEDC_USE_IDF_V5
       ledcWrite(_cfg.pin_bl, duty);
 #else
       ledcWrite(_cfg.pwm_channel, duty);

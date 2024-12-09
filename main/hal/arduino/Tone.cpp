@@ -4,6 +4,8 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+#define TAG "tone"
+
 #define delay(ms) vTaskDelay(pdMS_TO_TICKS(ms))
 
 static TaskHandle_t _tone_task = NULL;
@@ -23,14 +25,17 @@ typedef struct{
 } tone_msg_t;
 
 static void tone_task(void*){
+  ESP_LOGI(TAG, "from task");
   tone_msg_t tone_msg;
   while(1){
     xQueueReceive(_tone_queue, &tone_msg, portMAX_DELAY);
+    ESP_LOGI(TAG, "queue got: %d", tone_msg.tone_cmd);
     switch(tone_msg.tone_cmd){
       case TONE_START:
-        log_d("Task received from queue TONE_START: pin=%d, frequency=%u Hz, duration=%lu ms", tone_msg.pin, tone_msg.frequency, tone_msg.duration);
+        ESP_LOGI(TAG, "Task received from queue TONE_START: pin=%u, frequency=%u Hz, duration=%lu ms", tone_msg.pin, tone_msg.frequency, tone_msg.duration);
 
         if (_pin == -1) {
+          ESP_LOGI(TAG, "Attaching");
           if (ledcAttach(tone_msg.pin, tone_msg.frequency, 10) == 0) {
               log_e("Tone start failed");
               break;
@@ -58,18 +63,25 @@ static void tone_task(void*){
 }
 
 static int tone_init(){
+  ESP_LOGI(TAG, "init");
+
   if(_tone_queue == NULL){
-    log_v("Creating tone queue");
+    ESP_LOGI(TAG, "create");
+    log_i("Creating tone queue");
     _tone_queue = xQueueCreate(128, sizeof(tone_msg_t));
     if(_tone_queue == NULL){
+      ESP_LOGI(TAG, "fail");
+
       log_e("Could not create tone queue");
       return 0; // ERR
     }
     log_v("Tone queue created");
+    ESP_LOGI(TAG, "ok");
   }
 
   if(_tone_task == NULL){
-    log_v("Creating tone task");
+    log_i("Creating tone task");
+    ESP_LOGI(TAG, "make task");
     xTaskCreate(
       tone_task, // Function to implement the task
       "toneTask", // Name of the task
@@ -80,9 +92,11 @@ static int tone_init(){
       );
     if(_tone_task == NULL){
       log_e("Could not create tone task");
+      ESP_LOGI(TAG, "fail");
       return 0; // ERR
     }
     log_v("Tone task created");
+    ESP_LOGI(TAG, "ok");
   }
   return 1; // OK
 }
@@ -90,7 +104,7 @@ static int tone_init(){
 namespace ARDUINO {
 
 void noTone(uint8_t pin){
-  log_d("noTone was called");
+  log_i("noTone was called");
   if(_pin == pin) {
     if(tone_init()){
       tone_msg_t tone_msg = {
@@ -113,7 +127,7 @@ void noTone(uint8_t pin){
 // duration - time in ms - how long will the signal be outputted.
 //   If not provided, or 0 you must manually call noTone to end output
 void tone(uint8_t pin, unsigned int frequency, unsigned long duration){
-  log_d("pin=%d, frequency=%u Hz, duration=%lu ms", pin, frequency, duration);
+  log_i("pin=%d, frequency=%u Hz, duration=%lu ms", pin, frequency, duration);
   if(_pin == -1 || _pin == pin) {
     if(tone_init()){
       tone_msg_t tone_msg = {
