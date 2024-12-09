@@ -24,20 +24,16 @@ Contributors:
 #include "../platforms/common.hpp"
 #include "../misc/pixelcopy.hpp"
 #include "../misc/colortype.hpp"
+#include "../../internal/alloca.h"
 
+#include <stdint.h>
+#include <stddef.h>
 #include <esp_log.h>
 #include <soc/gpio_periph.h>
 #include <soc/gpio_reg.h>
 #include <soc/io_mux_reg.h>
 #if __has_include(<hal/gpio_types.h>)
  #include <hal/gpio_types.h>
-#endif
-
-#if __has_include(<alloca.h>)
-#include <alloca.h>
-#else
-#include <malloc.h>
-#define alloca _alloca
 #endif
 
 #define TAG "M5HDMI"
@@ -48,6 +44,7 @@ namespace lgfx
  {
 
 //----------------------------------------------------------------------------
+  static constexpr const uint32_t base_clock = 74250000;
 
   enum GWFPGA_Inst_Def
   {
@@ -108,6 +105,14 @@ namespace lgfx
     *_tms_reg[0] = TMS_MASK;
     *_tdi_reg[0] = TDI_MASK;
     *_tck_reg[0] = TCK_MASK;
+
+    int retry = 128;
+    do
+    { // FPGAのロットによって待ち時間に差がある。
+      // 先に進んで良いかステータスレジスタの状態をチェックする。
+      if ((JTAG_ReadStatus() & 0x200) == 0) { break; }
+      delay(1);
+    } while (--retry);
 
     JTAG_MoveTap(TAP_UNKNOWN, TAP_IDLE);
 
@@ -297,18 +302,18 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  std::uint8_t Panel_M5HDMI::HDMI_Trans::readRegister(std::uint8_t register_address)
+  uint8_t Panel_M5HDMI::HDMI_Trans::readRegister(uint8_t register_address)
   {
-    std::uint8_t buffer;
+    uint8_t buffer;
     lgfx::i2c::transactionWriteRead(this->HDMI_Trans_config.i2c_port, this->HDMI_Trans_config.i2c_addr, &register_address, 1, &buffer, 1, this->HDMI_Trans_config.freq_read);
     return buffer;
   }
 
-  std::uint16_t Panel_M5HDMI::HDMI_Trans::readRegister16(std::uint8_t register_address)
+  uint16_t Panel_M5HDMI::HDMI_Trans::readRegister16(uint8_t register_address)
   {
-    std::uint8_t buffer[2];
+    uint8_t buffer[2];
     lgfx::i2c::transactionWriteRead(this->HDMI_Trans_config.i2c_port, this->HDMI_Trans_config.i2c_addr, &register_address, 1, buffer, 2, this->HDMI_Trans_config.freq_read);
-    return (static_cast<std::uint16_t>(buffer[0]) << 8) | buffer[1];
+    return (static_cast<uint16_t>(buffer[0]) << 8) | buffer[1];
   }
 
   bool Panel_M5HDMI::HDMI_Trans::writeRegister(uint8_t register_address, uint8_t value)
@@ -342,10 +347,67 @@ namespace lgfx
     return true;
   }
 
+  void Panel_M5HDMI::HDMI_Trans::_i2c_backup(void)
+  {
+    int i2c_port = HDMI_Trans_config.i2c_port;
+    auto sda = lgfx::i2c::getPinSDA(i2c_port);
+    int prev_sda = -1;
+    if (sda.has_value())
+    {
+      prev_sda = sda.value();
+    }
+    _pin_backup[0].setPin(prev_sda);
+    _pin_backup[0].backup();
+
+    auto scl = lgfx::i2c::getPinSCL(i2c_port);
+    int prev_scl = -1;
+    if (scl.has_value())
+    {
+      prev_scl = scl.value();
+    }
+    _pin_backup[1].setPin(prev_scl);
+    _pin_backup[1].backup();
+
+    int new_sda = _pin_backup[2].getPin();
+    int new_scl = _pin_backup[3].getPin();
+    if (new_sda >= 0 && new_scl >= 0)
+    {
+      if (prev_sda != new_sda || prev_scl != new_scl)
+      {
+        // lgfx::i2c::setPins(i2c_port, new_sda, new_scl);
+        lgfx::i2c::init(i2c_port, new_sda, new_scl);
+        const uint8_t gpio_command[] = {
+          lgfx::gpio::command_mode_output, (uint8_t)new_scl,
+          lgfx::gpio::command_write_low  , (uint8_t)new_scl,
+          lgfx::gpio::command_mode_output, (uint8_t)new_sda,
+          lgfx::gpio::command_write_low  , (uint8_t)new_sda,
+          lgfx::gpio::command_write_high , (uint8_t)new_scl,
+          lgfx::gpio::command_write_high , (uint8_t)new_sda,
+          lgfx::gpio::command_write_low  , (uint8_t)new_scl,
+          lgfx::gpio::command_write_low  , (uint8_t)new_sda,
+          lgfx::gpio::command_write_high , (uint8_t)new_scl,
+          lgfx::gpio::command_write_high , (uint8_t)new_sda,
+          lgfx::gpio::command_end
+        };
+        lgfx::gpio::command(gpio_command);
+        _pin_backup[2].restore();
+        _pin_backup[3].restore();
+      }
+    }
+  }
+
+  void Panel_M5HDMI::HDMI_Trans::_i2c_restore(void)
+  {
+    lgfx::i2c::init(HDMI_Trans_config.i2c_port, _pin_backup[0].getPin(), _pin_backup[1].getPin());
+    _pin_backup[0].restore();
+    _pin_backup[1].restore();
+  }
+
   Panel_M5HDMI::HDMI_Trans::ChipID Panel_M5HDMI::HDMI_Trans::readChipID(void)
   {
     ChipID chip_id = { 0,0,0 };
 
+    _i2c_backup();
     if (this->writeRegister(0xff, 0x80)
      && this->writeRegister(0xee, 0x01))
     {
@@ -353,18 +415,37 @@ namespace lgfx
       chip_id.id[1] = this->readRegister(0x01);
       chip_id.id[2] = this->readRegister(0x02);
     }
+    _i2c_restore();
+
     return chip_id;
   }
 
   void Panel_M5HDMI::HDMI_Trans::reset(void)
   {
+    _i2c_backup();
     static constexpr const uint8_t data[] = { 0xff, 0x81, 0x30, 0x00, 0x02, 0x66, 0x0a, 0x06, 0x15, 0x06, 0x4e, 0xa8, 0xff, 0x80, 0xee, 0x01, 0x11, 0x00, 0x13, 0xf1, 0x13, 0xf9, 0x0a, 0x80, 0xff, 0x82, 0x1b, 0x77, 0x1c, 0xec, 0x45, 0x00, 0x4f, 0x40, 0x50, 0x00, 0x47, 0x07 };
     this->writeRegisterSet(data, sizeof(data));
+    _i2c_restore();
+  }
+
+  Panel_M5HDMI::HDMI_Trans::HDMI_Trans(const lgfx::Bus_I2C::config_t& i2c_config)
+  {
+    HDMI_Trans_config.i2c_port = i2c_config.i2c_port;
+    _i2c_backup();
+    HDMI_Trans_config = i2c_config;
+    lgfx::i2c::release(HDMI_Trans_config.i2c_port);
+    lgfx::i2c::init(HDMI_Trans_config.i2c_port, HDMI_Trans_config.pin_sda, HDMI_Trans_config.pin_scl);
+    _pin_backup[2].setPin(HDMI_Trans_config.pin_sda);
+    _pin_backup[3].setPin(HDMI_Trans_config.pin_scl);
+    _pin_backup[2].backup();
+    _pin_backup[3].backup();
+    _i2c_restore();
   }
 
   bool Panel_M5HDMI::HDMI_Trans::init(void)
   {
     auto id = this->readChipID();
+    _i2c_backup();
     {
 // 96kHz audio setting.
 //    static constexpr const uint8_t data_1[] = { 0xff, 0x82, 0xD6, 0x8E, 0xD7, 0x04, 0xff, 0x84, 0x06, 0x08, 0x07, 0x10, 0x09, 0x00, 0x0F, 0xAB, 0x34, 0xD5, 0x35, 0x00, 0x36, 0x30, 0x37, 0x00, 0x3C, 0x21,
@@ -388,6 +469,7 @@ namespace lgfx
       this->writeRegisterSet(data_u3, sizeof(data_u3));
     }
 
+    bool result = false;
     for (int i = 0; i < 8; ++i)
     {
       static constexpr const uint8_t data_pll[] = { 0xff, 0x80, 0x16, 0xf1, 0x18, 0xdc, 0x18, 0xfc, 0x16, 0xf3, 0x16, 0xe3, 0x16, 0xf3, 0xff, 0x82 };
@@ -399,15 +481,21 @@ namespace lgfx
       {
         static constexpr const uint8_t data[] = { 0xb9, 0x00, 0xff, 0x84, 0x43, 0x31, 0x44, 0x10, 0x45, 0x2a, 0x47, 0x04, 0x10, 0x2c, 0x12, 0x64, 0x3d, 0x0a, 0xff, 0x80, 0x11, 0x00, 0x13, 0xf1, 0x13, 0xf9, 0xff, 0x81, 0x31, 0x44, 0x32, 0x4a, 0x33, 0x0b, 0x34, 0x00, 0x35, 0x00, 0x36, 0x00, 0x37, 0x44, 0x3f, 0x0f, 0x40, 0xa0, 0x41, 0xa0, 0x42, 0xa0, 0x43, 0xa0, 0x44, 0xa0, 0x30, 0xea };
         this->writeRegisterSet(data, sizeof(data));
-        return true;
+        result = true;
+        break;
       }
     }
-    ESP_LOGE(TAG, "failed to initialize the HDMI transmitter.");
-    return false;
+    _i2c_restore();
+    if (!result) {
+      ESP_LOGE(TAG, "failed to initialize the HDMI transmitter.");
+      return false;
+    }
+    return true;
   }
 
   size_t Panel_M5HDMI::HDMI_Trans::readEDID(uint8_t* EDID, size_t len)
   {
+    _i2c_backup();
     static constexpr const uint8_t data[] = { 0xff, 0x85 ,0x03, 0xc9 ,0x04, 0xA0 ,0x06, 0x20 ,0x14, 0x7f };
     this->writeRegisterSet(data, sizeof(data));
 
@@ -435,33 +523,11 @@ namespace lgfx
     }
     static constexpr const uint8_t data3[] = { 0x03, 0xc2 ,0x07, 0x1f };
     this->writeRegisterSet(data3, sizeof(data3));
+    _i2c_restore();
     return result;
   }
 
 //----------------------------------------------------------------------------
-
-  class _pin_backup_t
-  {
-  public:
-    _pin_backup_t(gpio_num_t pin_num)
-      : _io_mux_gpio_reg   { *reinterpret_cast<uint32_t*>(GPIO_PIN_MUX_REG[pin_num]) }
-      , _gpio_func_out_reg { *reinterpret_cast<uint32_t*>(GPIO_FUNC0_OUT_SEL_CFG_REG + (pin_num * 4)) }
-      , _pin_num           { pin_num }
-    {}
-
-    void restore(void) const
-    {
-      if ((uint32_t)_pin_num < GPIO_NUM_MAX) {
-        *reinterpret_cast<uint32_t*>(GPIO_PIN_MUX_REG[_pin_num]) = _io_mux_gpio_reg;
-        *reinterpret_cast<uint32_t*>(GPIO_FUNC0_OUT_SEL_CFG_REG + (_pin_num * 4)) = _gpio_func_out_reg;
-      }
-    }
-
-  private:
-    uint32_t _io_mux_gpio_reg;
-    uint32_t _gpio_func_out_reg;
-    gpio_num_t _pin_num;
-  };
 
   uint32_t Panel_M5HDMI::_read_fpga_id(void)
   {
@@ -485,10 +551,8 @@ namespace lgfx
   {
     ESP_LOGI(TAG, "i2c port:%d sda:%d scl:%d", _HDMI_Trans_config.i2c_port, _HDMI_Trans_config.pin_sda, _HDMI_Trans_config.pin_scl);
 
-    lgfx::i2c::init(_HDMI_Trans_config.i2c_port, _HDMI_Trans_config.pin_sda, _HDMI_Trans_config.pin_scl);
-
     HDMI_Trans driver(_HDMI_Trans_config);
-
+  
     auto result = driver.readChipID();
     ESP_LOGI(TAG, "Chip ID: %02x %02x %02x", result.id[0], result.id[1], result.id[2]);
     if (result.id[0] == result.id[1] && result.id[0] == result.id[2])
@@ -504,7 +568,7 @@ namespace lgfx
     if ((_read_fpga_id() & 0xFFFF) != ('H' | 'D' << 8))
     {
       auto bus_cfg = reinterpret_cast<lgfx::Bus_SPI*>(_bus)->config();
-      _pin_backup_t backup_pins[] = { (gpio_num_t)bus_cfg.pin_sclk, (gpio_num_t)bus_cfg.pin_mosi, (gpio_num_t)bus_cfg.pin_miso };
+      gpio::pin_backup_t backup_pins[] = { bus_cfg.pin_sclk, bus_cfg.pin_mosi, bus_cfg.pin_miso };
       LOAD_FPGA fpga(bus_cfg.pin_sclk, bus_cfg.pin_mosi, bus_cfg.pin_miso, _cfg.pin_cs);
       for (auto &bup : backup_pins) { bup.restore(); }
 
@@ -572,8 +636,6 @@ namespace lgfx
 
   uint32_t getPllParams(Panel_M5HDMI::video_clock_t* vc, uint32_t target_clock) {
 
-    static constexpr const uint32_t base_clock = 74250000;
-
     uint32_t fb_clock = base_clock;
     uint32_t save_diff = ~0u;
     uint32_t fb_div = 1;
@@ -614,6 +676,8 @@ namespace lgfx
       save_diff = diff;
       vc->output_divider = odiv;
     }
+    // Use half of the pixel clock if the target clock is greater than the base clock.
+    vc->use_half_clock = target_clock > base_clock;
 
     return result;
   }
@@ -623,7 +687,8 @@ namespace lgfx
     video_clock_t vc;
     int32_t OUTPUT_CLOCK = getPllParams(&vc, _pixel_clock);
 
-    int32_t TOTAL_RESOLUTION = OUTPUT_CLOCK / _refresh_rate;
+    bool use_half_clock = vc.use_half_clock;
+    int32_t TOTAL_RESOLUTION = (OUTPUT_CLOCK >> use_half_clock) / _refresh_rate;
 
     int mem_width  = _cfg.memory_width ;
     int mem_height = _cfg.memory_height;
@@ -632,8 +697,8 @@ namespace lgfx
     int vert_total = mem_height + 9;
     int hori_total = TOTAL_RESOLUTION / vert_total;
     int hori_tmp = hori_total, vert_tmp = vert_total;
-    int hori_min = mem_width +  32 + (mem_width >> (1+_scale_w));
-    int hori_max = mem_width + 768 + (mem_width >> 3);
+    int hori_min = mem_width + (( 32 + (mem_width >> (1+_scale_w))) >> use_half_clock);
+    int hori_max = mem_width + ((768 + (mem_width >> 3)) >> use_half_clock);
     if (hori_tmp > hori_max) { hori_tmp = hori_max; }
     for (;;)
     {
@@ -678,7 +743,15 @@ namespace lgfx
     vt.h.front_porch = porch;
     vt.h.sync = sync;
     vt.h.back_porch = remain;
-
+/*
+    // Force to 960x540
+    vt.v.front_porch = 4; //porch;
+    vt.v.sync = 5; //sync;
+    vt.v.back_porch = 36; //remain;
+    vt.h.front_porch = 88/2; //porch;
+    vt.h.sync = 44/2; //sync;
+    vt.h.back_porch = 148/2; //remain;
+//*/
     setVideoTiming(&vt);
     setScaling(_scale_w, _scale_h);
     _set_video_clock(&vc);
@@ -741,7 +814,7 @@ namespace lgfx
 
   void Panel_M5HDMI::config_resolution( const config_resolution_t& cfg_reso )
   {
-    static constexpr int SCALE_MAX = 16;
+    static constexpr int SCALE_MAX = 8;
     static constexpr int RANGE_MAX = 2048;
 
     uint_fast16_t logical_width  = cfg_reso.logical_width;
@@ -809,8 +882,8 @@ namespace lgfx
     {
       scale_w = 1280 / logical_width;
       scale_h = 720 / logical_height;
-      if ((scale_w > 16)
-      || (scale_h > 16)
+      if ((scale_w > SCALE_MAX)
+      || (scale_h > SCALE_MAX)
       || (limit != 1280 * 720)
       || (scale_w * logical_width != 1280)
       || (scale_h * logical_height != 720))
@@ -851,7 +924,10 @@ namespace lgfx
         w = output_width / --scale_w;
       }
     }
-
+    if (_pixel_clock > base_clock && scale_w >= 2) { // use_half_clock
+      scale_w >>= 1;
+      output_width >>= 1;
+    }
     _scale_w = scale_w;
     _scale_h = scale_h;
     _cfg.memory_width  = output_width  ;
@@ -891,6 +967,7 @@ namespace lgfx
   {
     if ((_last_cmd & ~7) == CMD_WRITE_RAW)
     {
+      _bus->wait();
       cs_control(true);
       _total_send = 0;
       _last_cmd = 0;
@@ -916,7 +993,6 @@ namespace lgfx
   {
     if ((_last_cmd & ~7) == CMD_WRITE_RAW)
     {
-      _last_cmd = 0;
       _total_send = 0;
 
       _bus->beginRead();
@@ -1042,10 +1118,7 @@ namespace lgfx
       buf[3] = _raw_color;
       bytes += 4;
     }
-    if (rect || _total_send || _last_cmd)
-    {
-      _check_busy(bytes);
-    }
+    _check_busy(bytes);
     _bus->writeBytes(((uint8_t*)buf)+3, bytes, false, false);
   }
 
@@ -1350,27 +1423,14 @@ namespace lgfx
 
     --w;
     --h;
+
+    if (dst_y > src_y) {
+      dst_y += h;
+      src_y += h;
+      h = -h;
+    }
     startWrite();
-    if (dst_y < src_y || (dst_y == src_y && dst_x <= src_x) || (src_y + h < dst_y) || (src_x + w < dst_x))
-    {
-      _copy_rect(dst_x + (dst_y << 16), src_x + (src_y << 16), w + (h << 16));
-    }
-    else if (src_y < dst_y)
-    {
-      do
-      {
-        _copy_rect(dst_x + ((dst_y+h) << 16), src_x + ((src_y+h) << 16), w);
-      } while (h--);
-    }
-    else
-    {
-      uint32_t offscreen = _cfg.memory_height << 16;
-      do
-      {
-        _copy_rect(offscreen, src_x + ((src_y+h) << 16), w);
-        _copy_rect(dst_x + ((dst_y+h) << 16), offscreen, w);
-      } while (h--);
-    }
+    _copy_rect(dst_x + (dst_y << 16), src_x + (src_y << 16), w + (h << 16));
     endWrite();
   }
 
@@ -1418,13 +1478,14 @@ namespace lgfx
   {
     union cmd_t
     {
-      uint8_t raw[8];
+      uint8_t raw[9];
       struct __attribute__((packed))
       {
         uint8_t cmd;
         uint16_t input_divider;
         uint16_t feedback_divider;
         uint16_t output_divider;
+        uint8_t flags;
         uint8_t chksum;
       };
     };
@@ -1433,6 +1494,7 @@ namespace lgfx
     cmd.input_divider = param->input_divider << 8;
     cmd.feedback_divider = param->feedback_divider << 8;
     cmd.output_divider = param->output_divider << 8;
+    cmd.flags = param->use_half_clock ? 1 : 0;
     uint_fast8_t sum = 0;
     for (size_t i = 0; i < sizeof(cmd_t)-1; ++i)
     {

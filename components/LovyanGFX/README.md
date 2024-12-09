@@ -108,6 +108,7 @@ This library has the following advantages.
     - M5Stack AtomDisplay
 
   - タッチスクリーン TouchScreens
+    - I2C CST816S
     - I2C FT5x06 (FT5206, FT5306, FT5406, FT6206, FT6236, FT6336, FT6436)
     - I2C GSLx680 (GSL1680)
     - I2C GT911
@@ -167,7 +168,7 @@ This library is also compatible with the above models and display panels with a 
 // #define LGFX_FEATHER_ESP32_S3_TFT          // Adafruit Feather ESP32 S3 TFT
 // #define LGFX_ESPBOY                        // ESPboy
 // #define LGFX_WYWY_ESP32S3_HMI_DEVKIT       // wywy ESP32S3 HMI DevKit
-// #define LGFX_ESP32_2432S028                // Sunton ESP32 2432S028
+// #define LGFX_SUNTON_ESP32_2432S028         // Sunton ESP32 2432S028
 
   #define LGFX_AUTODETECT // 自動認識 (D-duino-32 XS, WT32-SC01, PyBadge はパネルID読取りが出来ないため自動認識の対象から外れています)
 

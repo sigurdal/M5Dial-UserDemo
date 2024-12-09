@@ -12,7 +12,7 @@
 #include <driver/i2c.h>
 #include <esp_log.h>
 #include <ctime>
-
+#include <cstdint>
 
 /**
  * @brief Modify from "hal_tp.hpp"

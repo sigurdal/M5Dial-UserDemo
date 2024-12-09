@@ -18,9 +18,11 @@ Contributors:
 Porting for SDL:
  [imliubo](https://github.com/imliubo)
 /----------------------------------------------------------------------------*/
-#if defined ( LGFX_SDL )
+#if !defined (ARDUINO)
 
 #include "common.hpp"
+
+#if defined ( SDL_h_ )
 
 #include <chrono>
 #include <thread>
@@ -58,7 +60,7 @@ namespace lgfx
     }
     else
     {
-      std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds - 1));
+      SDL_Delay(milliseconds);
     }
   }
 
@@ -67,7 +69,7 @@ namespace lgfx
     auto start = micros();
     if (us >= 2000)
     {
-      std::this_thread::sleep_for(std::chrono::milliseconds((us / 1000) - 1));
+      SDL_Delay((us / 1000) - 1);
     }
     do
     {
@@ -113,4 +115,5 @@ namespace lgfx
  }
 }
 
+#endif
 #endif

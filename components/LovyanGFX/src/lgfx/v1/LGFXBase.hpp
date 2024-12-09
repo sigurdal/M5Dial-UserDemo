@@ -48,7 +48,7 @@ namespace lgfx
 #endif
 //----------------------------------------------------------------------------
 
-#if !defined (ARDUINO) || defined (ARDUINO_ARCH_MBED_RP2040) || defined (ARDUINO_ARCH_RP2040)
+#if !defined (ARDUINO) || defined (ARDUINO_ARCH_MBED_RP2040) || defined (ARDUINO_ARCH_RP2040) || (USE_PICO_SDK)
 #define LGFX_PRINTF_ENABLED
 #endif
 
@@ -62,17 +62,64 @@ namespace lgfx
     LGFXBase(void) = default;
     virtual ~LGFXBase(void) = default;
 
+    /// @brief Converts RGB information to 8-bit color code.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
+    /// @return 8-bit color code
     LGFX_INLINE static constexpr uint8_t  color332(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color332(r, g, b); }
+    /// @brief Converts RGB information to 16-bit color code.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
+    /// @return 16-bit color code
     LGFX_INLINE static constexpr uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color565(r, g, b); }
+    /// @brief Converts RGB information to 24-bit color code.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
+    /// @return 24-bit color code
     LGFX_INLINE static constexpr uint32_t color888(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color888(r, g, b); }
+
+    /// @brief Endian conversion of 16-bit RGB565 format color code.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
+    /// @return 16-bit color code (endian converted)
+    /// @note This function is used to draw directly to the Sprite's buffer memory.
     LGFX_INLINE static constexpr uint16_t swap565( uint8_t r, uint8_t g, uint8_t b) { return lgfx::swap565( r, g, b); }
+    /// @brief Endian conversion of 24-bit RGB888 format color code.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
+    /// @return 24-bit color code (endian converted)
+    /// @note This function is used to draw directly to the Sprite's buffer memory.
     LGFX_INLINE static constexpr uint32_t swap888( uint8_t r, uint8_t g, uint8_t b) { return lgfx::swap888( r, g, b); }
+
+    /// @brief Convert 16-bit RGB565 format color code to 8-bit RGB332 format.
+    /// @param rgb565 16-bit color code
+    /// @return 8-bit color code
     LGFX_INLINE static uint8_t  color16to8( uint32_t rgb565) { return lgfx::color_convert<rgb332_t,rgb565_t>(rgb565); }
+    /// @brief Convert 8-bit RGB332 format color code to 16-bit RGB565 format.
+    /// @param rgb332 16-bit color code
+    /// @return 16-bit color code
     LGFX_INLINE static uint16_t color8to16( uint32_t rgb332) { return lgfx::color_convert<rgb565_t,rgb332_t>(rgb332); }
+    /// @brief Convert 16-bit RGB565 format color code to 24-bit RGB888 format.
+    /// @param rgb565 16-bit color code
+    /// @return 24-bit color code
     LGFX_INLINE static uint32_t color16to24(uint32_t rgb565) { return lgfx::color_convert<rgb888_t,rgb565_t>(rgb565); }
+    /// @brief Convert 24-bit RGB888 format color code to 16-bit RGB565 format.
+    /// @param rgb888 24-bit color code
+    /// @return 16-bit color code
     LGFX_INLINE static uint16_t color24to16(uint32_t rgb888) { return lgfx::color_convert<rgb565_t,rgb888_t>(rgb888); }
 
+    /// @brief Specifies the color used to draw the screen.
+    /// @param r red
+    /// @param g green
+    /// @param b blue
     LGFX_INLINE   void setColor(uint8_t r, uint8_t g, uint8_t b) { setColor(lgfx::color888(r,g,b)); }
+    /// @brief Specifies the color used to draw the screen.
+    /// @param color color code
     LGFX_INLINE_T void setColor(T color) { setRawColor(_write_conv.convert(color)); }
     LGFX_INLINE   void setRawColor(uint32_t c) { *((uint32_t*)&_color) = c; }
     LGFX_INLINE   uint32_t getRawColor(void) const { return *((uint32_t*)&_color); }
@@ -81,7 +128,14 @@ namespace lgfx
     LGFX_INLINE   color_conv_t* getColorConverter(void) { return &_write_conv; }
     LGFX_INLINE   color_depth_t getColorDepth(void) const { return _write_conv.depth; }
 
+    /// @brief Allocate bus for screen communication.
+    /// @param transaction If true, transaction processing is performed.
+    /// @note Although bus allocation and release are automatically performed when drawing functions are called,
+    /// using startWrite and endWrite before and after the drawing process suppresses bus allocation
+    /// and release and improves drawing speed.
+    /// In the case of electronic paper (EPD), drawing after startWrite() is reflected on the screen by calling endWrite().
     LGFX_INLINE   void startWrite(bool transaction = true) { _panel->startWrite(transaction); }
+    /// @brief Release bus for screen communication.
     LGFX_INLINE   void endWrite(void)                      { _panel->endWrite(); }
     LGFX_INLINE   void beginTransaction(void)              { _panel->beginTransaction(); }
     LGFX_INLINE   void endTransaction(void)                { _panel->endTransaction(); }
@@ -100,19 +154,94 @@ namespace lgfx
     LGFX_INLINE   void writeFillRectPreclipped( int32_t x, int32_t y, int32_t w, int32_t h)                 { _panel->writeFillRectPreclipped(x, y, w, h, getRawColor()); }
     LGFX_INLINE_T void writeColor      ( const T& color, uint32_t length) { if (0 == length) return; setColor(color);               _panel->writeBlock(getRawColor(), length); }
     LGFX_INLINE_T void pushBlock       ( const T& color, uint32_t length) { if (0 == length) return; setColor(color); startWrite(); _panel->writeBlock(getRawColor(), length); endWrite(); }
+
+    /// @brief Draw a pixel.
+    /// @param x X-coordinate
+    /// @param y Y-coordinate
+    /// @note Draws in the color specified by setColor().
     LGFX_INLINE   void drawPixel       ( int32_t x, int32_t y) { if (x >= _clip_l && x <= _clip_r && y >= _clip_t && y <= _clip_b) { _panel->drawPixelPreclipped(x, y, getRawColor()); } }
+    /// @brief Draw a pixel.
+    /// @param x X-coordinate
+    /// @param y Y-coordinate
+    /// @param color Color to draw with
     LGFX_INLINE_T void drawPixel       ( int32_t x, int32_t y                                 , const T& color) { setColor(color); drawPixel    (x, y         ); }
+    /// @brief Draw a vertical line.
+    /// @param x Top-most X-coordinate
+    /// @param y Top-most Y-coordinate
+    /// @param h Height in pixels
+    /// @param color Color to draw with
     LGFX_INLINE_T void drawFastVLine   ( int32_t x, int32_t y           , int32_t h           , const T& color) { setColor(color); drawFastVLine(x, y   , h   ); }
+    /// @brief Draw a vertical line.
+    /// @param x Top-most X-coordinate
+    /// @param y Top-most Y-coordinate
+    /// @param h Height in pixels
+    /// @note Draws in the color specified by setColor().
                   void drawFastVLine   ( int32_t x, int32_t y           , int32_t h);
+    /// @brief Draw a horizontal line.
+    /// @param x Left-most X-coordinate
+    /// @param y Left-most Y-coordinate
+    /// @param w Width in pixels
+    /// @param color Color to draw with
     LGFX_INLINE_T void drawFastHLine   ( int32_t x, int32_t y, int32_t w                      , const T& color) { setColor(color); drawFastHLine(x, y, w      ); }
+    /// @brief Draw a horizontal line.
+    /// @param x Left-most X-coordinate
+    /// @param y Left-most Y-coordinate
+    /// @param w Width in pixels
+    /// @note Draws in the color specified by setColor().
                   void drawFastHLine   ( int32_t x, int32_t y, int32_t w);
+    /// @brief  Fill a rectangle.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @param color Color to fill with
+    /// @brief Draw a horizontal line in difference mode.
+    /// @param x Left-most X-coordinate
+    /// @param y Left-most Y-coordinate
+    /// @param w Width in pixels
+    /// @param color Color to draw with
+    LGFX_INLINE_T void drawFastHLineInDifference( int32_t x, int32_t y, int32_t w             , const T& color) { setColor(color); drawFastHLineInDifference(x, y, w      ); }
+    /// @brief Draw a horizontal line in difference mode.
+    /// @param x Left-most X-coordinate
+    /// @param y Left-most Y-coordinate
+    /// @param w Width in pixels
+    /// @note Draws in the color specified by setColor().
+                  void drawFastHLineInDifference( int32_t x, int32_t y, int32_t w);
     LGFX_INLINE_T void fillRect        ( int32_t x, int32_t y, int32_t w, int32_t h           , const T& color) { setColor(color); fillRect     (x, y, w, h   ); }
+    /// @brief  Fill a rectangle.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @note Draws in the color specified by setColor().
                   void fillRect        ( int32_t x, int32_t y, int32_t w, int32_t h);
-
-    LGFX_INLINE_T void fillRectInDifference( int32_t x, int32_t y, int32_t w, int32_t h           , const T& color) { setColor(color); fillRectInDifference(x, y, w, h   ); }
+        /// @brief  Fill a rectangle in difference mode.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @param color Color to fill with
+    LGFX_INLINE_T void fillRectInDifference( int32_t x, int32_t y, int32_t w, int32_t h       , const T& color) { setColor(color); fillRectInDifference(x, y, w, h   ); }
+    /// @brief  Fill a rectangle in difference mode.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @note Draws in the color specified by setColor().
                   void fillRectInDifference( int32_t x, int32_t y, int32_t w, int32_t h);
-
+    /// @brief Draw a rectangle outline.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @param color Color to fill with
     LGFX_INLINE_T void drawRect        ( int32_t x, int32_t y, int32_t w, int32_t h           , const T& color) { setColor(color); drawRect     (x, y, w, h   ); }
+    /// @brief Draw a rectangle outline.
+    /// @param x Top-left-corner X-coordinate
+    /// @param y Top-left-corner Y-coordinate
+    /// @param w Width in pixels
+    /// @param h Height in pixels
+    /// @note Draws in the color specified by setColor().
                   void drawRect        ( int32_t x, int32_t y, int32_t w, int32_t h);
     LGFX_INLINE_T void drawRoundRect   ( int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, const T& color) { setColor(color); drawRoundRect(x, y, w, h, r); }
                   void drawRoundRect   ( int32_t x, int32_t y, int32_t w, int32_t h, int32_t r);
@@ -146,6 +275,10 @@ namespace lgfx
                   void fillArc         ( int32_t x, int32_t y, int32_t r0, int32_t r1, float angle0, float angle1)                 {                  fillEllipseArc( x, y, r0, r1, r0, r1, angle0, angle1); }
     LGFX_INLINE_T void drawCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t cornername                , const T& color) { setColor(color); drawCircleHelper(x, y, r, cornername    ); }
                   void drawCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t cornername);
+    LGFX_INLINE_T void fillSmoothRoundRectInDifference(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, const T& color) { setColor(color); fillSmoothRoundRectInDifference(x, y, w, h, r); }
+                  void fillSmoothRoundRectInDifference(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r);
+    LGFX_INLINE_T void fillSmoothCircleInDifference(int32_t x, int32_t y, int32_t r, const T& color) { setColor(color); fillSmoothCircleInDifference(x, y, r); }
+                  void fillSmoothCircleInDifference(int32_t x, int32_t y, int32_t r) { fillSmoothRoundRectInDifference(x-r, y-r, r*2+1, r*2+1, r); }
     LGFX_INLINE_T void fillCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t corners, int32_t delta, const T& color)  { setColor(color); fillCircleHelper(x, y, r, corners, delta); }
                   void fillCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t corners, int32_t delta);
     LGFX_INLINE_T void floodFill( int32_t x, int32_t y, const T& color) { setColor(color); floodFill(x, y); }
@@ -160,13 +293,35 @@ namespace lgfx
     LGFX_INLINE_T void drawGradientVLine( int32_t x, int32_t y, int32_t h, const T& colorstart, const T& colorend ) { drawGradientLine( x, y, x, y + h - 1, colorstart, colorend ); }
     LGFX_INLINE_T void drawGradientLine ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, const T& colorstart, const T& colorend ) { draw_gradient_line( x0, y0, x1, y1, convert_to_rgb888(colorstart), convert_to_rgb888(colorend) ); }
 
+
+//----------------------------------------------------------------------------
+
+    template <const uint32_t N>
+                  const colors_t createGradient( const rgb888_t(&colors)[N] )                   { const colors_t ret = { colors, N };     return ret; }
+                  const colors_t createGradient( const rgb888_t* colors, const uint32_t count ) { const colors_t ret = { colors, count }; return ret; }
+    template <typename T=rgb888_t>
+                  T mapGradient( float val, float min, float max, const colors_t gr )                      { rgb888_t c=map_gradient(val, min, max, gr);            return T(c.r, c.g, c.b); }
+    template <typename T=rgb888_t>
+                  T mapGradient( float val, float min, double max, const rgb888_t *colors, uint32_t count ) { rgb888_t c=map_gradient(val, min, max, colors, count); return T(c.r, c.g, c.b); }
+
+    LGFX_INLINE_T void drawSmoothLine   ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, const T& color )                     { drawWideLine( x0, y0, x1, y1, 0.5f, color); }
+                  void drawGradientLine ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, const colors_t colors )              { draw_gradient_line(x0, y0, x1, y1, colors); }
+    LGFX_INLINE_T void drawWideLine     ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, float r, const T& color)             { draw_wedgeline(x0, y0, x1, y1, r, r, convert_to_rgb888(color)); }
+                  void drawWideLine     ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, float r, const colors_t colors )     { draw_gradient_wedgeline(x0, y0, x1, y1, r, r, colors); }
+    LGFX_INLINE_T void drawWedgeLine    ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, float r0, float r1, const T& color ) { draw_wedgeline(x0, y0, x1, y1, r0, r1, convert_to_rgb888(color)); }
+                  void drawWedgeLine    ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, float r0, float r1, const colors_t colors ) { draw_gradient_wedgeline(x0, y0, x1, y1, r0, r1, colors); }
+    LGFX_INLINE_T void drawSpot         ( int32_t x, int32_t y, float r, const T& color )    { draw_wedgeline(x, y, x, y, r, r, convert_to_rgb888(color)); }
+                  void drawGradientSpot ( int32_t x, int32_t y, float r, const colors_t gr ) { draw_gradient_wedgeline(x, y, x, y, r, r, gr); }
+                  void drawGradientHLine( int32_t x, int32_t y, uint32_t w, const colors_t colors ) { draw_gradient_line(x, y, x+w, y, colors); }
+                  void drawGradientVLine( int32_t x, int32_t y, uint32_t h, const colors_t colors ) { draw_gradient_line(x, y, x, y+h, colors); }
+                  void fillGradientRect ( int32_t x, int32_t y, uint32_t w, uint32_t h, const colors_t colors, fill_style_t style=RADIAL)        { fill_rect_gradient(x, y, w, h, colors, style); }
+    LGFX_INLINE_T void fillGradientRect ( int32_t x, int32_t y, uint32_t w, uint32_t h, const T& start, const T& end, fill_style_t style=RADIAL) { fill_rect_gradient(x, y, w, h, convert_to_rgb888(start), convert_to_rgb888(end), style); }
+
+//----------------------------------------------------------------------------
+
+
     LGFX_INLINE_T void fillSmoothRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, const T& color) { setColor(color); fillSmoothRoundRect(x, y, w, h, r); }
                   void fillSmoothRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r);
-
-    LGFX_INLINE_T void fillSmoothRoundRectInDifference(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, const T& color) { setColor(color); fillSmoothRoundRectInDifference(x, y, w, h, r); }
-                  void fillSmoothRoundRectInDifference(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r);
-
-    
 
     LGFX_INLINE_T void fillSmoothCircle(int32_t x, int32_t y, int32_t r, const T& color) { setColor(color); fillSmoothCircle(x, y, r); }
                   void fillSmoothCircle(int32_t x, int32_t y, int32_t r) { fillSmoothRoundRect(x-r, y-r, r*2+1, r*2+1, r); }
@@ -196,7 +351,7 @@ namespace lgfx
     [[deprecated("use isBusShared()")]]
     LGFX_INLINE   bool isSPIShared(void) const { return _panel->isBusShared(); }
                   void display(int32_t x, int32_t y, int32_t w, int32_t h);
-    LGFX_INLINE   void display(void) { _panel->display(0, 0, 0, 0); }
+    LGFX_INLINE   void display(void) { display(0, 0, 0, 0); }
     LGFX_INLINE   void waitDisplay(void) { _panel->waitDisplay(); }
     LGFX_INLINE   bool displayBusy(void) { return _panel->displayBusy(); }
     LGFX_INLINE   void setAutoDisplay(bool flg) { _panel->setAutoDisplay(flg); }
@@ -441,6 +596,35 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
+    // T == bgra8888_t or argb8888_t
+    template<typename T>
+    void pushAlphaImage(int32_t x, int32_t y, int32_t w, int32_t h, const T* data)
+    {
+      auto pc = create_pc(data);
+
+      // not support 1, 2, 4, and palette mode.
+      if (pc.dst_bits < 8 || this->hasPalette()) { return; }
+
+      if (pc.dst_bits > 16) {
+        if (pc.dst_depth == rgb888_3Byte) {
+          pc.fp_copy = pixelcopy_t::blend_rgb_fast<bgr888_t, T>;
+        } else {
+          pc.fp_copy = pixelcopy_t::blend_rgb_fast<bgr666_t, T>;
+        }
+      } else {
+        if (pc.dst_depth == rgb565_2Byte) {
+          pc.fp_copy = pixelcopy_t::blend_rgb_fast<swap565_t, T>;
+        } else { // src_depth == rgb332_1Byte:
+          pc.fp_copy = pixelcopy_t::blend_rgb_fast<rgb332_t, T>;
+        }
+      }
+      pushAlphaImage(x, y, w, h, &pc);
+    }
+
+    void pushAlphaImage(int32_t x, int32_t y, int32_t w, int32_t h, pixelcopy_t *param);
+
+//----------------------------------------------------------------------------
+
     /// read RGB565 16bit color
     uint16_t readPixel(int32_t x, int32_t y)
     {
@@ -644,6 +828,28 @@ namespace lgfx
     /// load VLW font
     bool loadFont(const uint8_t* array);
 
+    /// load vlw font from filesystem.
+    bool loadFont(const char *path)
+    {
+      unloadFont();
+      _font_file.reset(_create_data_wrapper());
+      return load_font_with_path(path);
+    }
+
+
+    template <typename T>
+    bool loadFont(T &fs, const char *path)
+    {
+      unloadFont();
+      _font_file.reset(new DataWrapperT<T>(&fs));
+      return load_font_with_path(path);
+    }
+
+    bool loadFont(DataWrapper* data)
+    {
+      return load_font(data);
+    }
+
     /// unload VLW font
     void unloadFont(void);
 
@@ -655,6 +861,16 @@ namespace lgfx
     void setAttribute(attribute_t attr_id, uint8_t param);
     uint8_t getAttribute(attribute_t attr_id);
     uint8_t getAttribute(uint8_t attr_id) { return getAttribute((attribute_t)attr_id); }
+
+    template <typename T>
+    void setFileStorage(T& fs) {
+      _data_wrapper_factory.reset(new DataWrapperTFactoryT<T>(&fs));
+    }
+
+    template <typename T>
+    void setFileStorage(T* fs) { _data_wrapper_factory.reset(new DataWrapperTFactoryT<T>(fs)); }
+
+    void clearFileStorage(void) { _data_wrapper_factory.reset(new DataWrapperTFactoryT<void>(nullptr)); }
 
 //----------------------------------------------------------------------------
 // print & text support
@@ -721,12 +937,12 @@ namespace lgfx
       qrcode(string.c_str(), x, y, width, version);
     }
 #endif
-    void qrcode(const char *string, int32_t x = -1, int32_t y = -1, int32_t width = -1, uint8_t version = 1);
+    void qrcode(const char *string, int32_t x = -1, int32_t y = -1, int32_t width = -1, uint8_t version = 1,bool margin = false);
 
   #define LGFX_FUNCTION_GENERATOR(drawImg, draw_img) \
-    protected: \
+   protected: \
     bool draw_img(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum); \
-    public: \
+   public: \
     bool drawImg(const uint8_t *data, uint32_t len, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
     { \
       PointerWrapper data_wrapper; \
@@ -737,6 +953,34 @@ namespace lgfx
     { \
       return this->draw_img(data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
     } \
+    bool drawImg##File(DataWrapper* file, const char *path, int32_t x = 0, int32_t y = 0, int32_t maxWidth = 0, int32_t maxHeight = 0, int32_t offX = 0, int32_t offY = 0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
+    { \
+      bool res = false; \
+      this->prepareTmpTransaction(file); \
+      file->preRead(); \
+      if (file->open(path)) \
+      { \
+        res = this->draw_img(file, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
+        file->close(); \
+      } \
+      file->postRead(); \
+      return res; \
+    } \
+    inline bool drawImg##File(const char *path, int32_t x = 0, int32_t y = 0, int32_t maxWidth = 0, int32_t maxHeight = 0, int32_t offX = 0, int32_t offY = 0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
+    { \
+      auto data = _create_data_wrapper(); \
+      bool res = drawImg##File(data, path, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
+      delete data; \
+      return res; \
+    } \
+    template <typename T> \
+    inline bool drawImg##File(T &fs, const char *path, int32_t x = 0, int32_t y = 0, int32_t maxWidth = 0, int32_t maxHeight = 0, int32_t offX = 0, int32_t offY = 0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
+    { \
+      DataWrapperT<T> file ( &fs ); \
+      bool res = this->drawImg##File(&file, path, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
+      file.close(); \
+      return res; \
+    }
 
     LGFX_FUNCTION_GENERATOR(drawBmp, draw_bmp)
     LGFX_FUNCTION_GENERATOR(drawJpg, draw_jpg)
@@ -753,10 +997,15 @@ namespace lgfx
     {
       return drawJpg(data, x, y, maxWidth, maxHeight, offX, offY, 1.0f / (1 << scale));
     }
+    [[deprecated("use float scale")]]
+    inline bool drawJpgFile(const char *path, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, jpeg_div::jpeg_div_t scale)
+    {
+      return drawJpgFile(path, x, y, maxWidth, maxHeight, offX, offY, 1.0f / (1 << scale));
+    }
 
     void* createPng( size_t* datalen, int32_t x = 0, int32_t y = 0, int32_t width = 0, int32_t height = 0);
 
-
+    void releasePngMemory(void);
 
     template<typename T>
     [[deprecated("use pushImage")]] void pushRect( int32_t x, int32_t y, int32_t w, int32_t h, const T* data) { pushImage(x, y, w, h, data); }
@@ -786,7 +1035,7 @@ namespace lgfx
     int32_t _sx = 0, _sy = 0, _sw = 0, _sh = 0; // for scroll zone
     int32_t _clip_l = 0, _clip_r = -1, _clip_t = 0, _clip_b = -1; // clip rect
 
-    uint32_t _base_rgb888 = 0;  // gap fill colour for clear and scroll zone 
+    uint32_t _base_rgb888 = 0;  // gap fill colour for clear and scroll zone
     raw_color_t _color = 0xFFFFFFU;
 
     color_conv_t _write_conv;
@@ -818,6 +1067,9 @@ namespace lgfx
     std::shared_ptr<RunTimeFont> _runtime_font;  // run-time generated font
     std::shared_ptr<DataWrapper> _font_file;  // run-time font file
     PointerWrapper _font_data;
+
+    std::shared_ptr<DataWrapperFactory> _data_wrapper_factory;
+    DataWrapper* _create_data_wrapper(void) { if (nullptr == _data_wrapper_factory.get()) { clearFileStorage(); } return _data_wrapper_factory->create(); }
 
     bool _textwrap_x = true;
     bool _textwrap_y = false;
@@ -1100,7 +1352,28 @@ namespace lgfx
     static void make_rotation_matrix(float* result, float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y);
 
     void read_rect(int32_t x, int32_t y, int32_t w, int32_t h, void* dst, pixelcopy_t* param);
+
+//----------------------------------------------------------------------------
+
+    bool clampArea(int32_t *xlo, int32_t *ylo, int32_t *xhi, int32_t *yhi);
+
+    rgb888_t map_gradient( float value, float start, float end, const rgb888_t *colors, uint32_t colors_count );
+    rgb888_t map_gradient( float value, float start, float end, const colors_t gradient );
+
     void draw_gradient_line( int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t colorstart, uint32_t colorend );
+    void draw_gradient_line( int32_t x0, int32_t y0, int32_t x1, int32_t y1, const colors_t gradient );
+
+    void draw_wedgeline         (float x0, float y0, float x1, float y1, float r0, float r1, const uint32_t fg_color);
+    void draw_gradient_wedgeline(float x0, float y0, float x1, float y1, float r0, float r1, const colors_t gradient );
+
+    void fill_rect_radial_gradient(int32_t x, int32_t y, uint32_t w, uint32_t h, const colors_t gradient);
+    void fill_rect_radial_gradient(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint32_t colorstart, const uint32_t colorend );
+    void fill_rect_linear_gradient(int32_t x, int32_t y, uint32_t w, uint32_t h, const colors_t gradient, fill_style_t style=VLINEAR );
+    void fill_rect_gradient(int32_t x, int32_t y, uint32_t w, uint32_t h, const colors_t gradient, fill_style_t style=RADIAL );
+    void fill_rect_gradient(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint32_t colorstart, const uint32_t colorend, fill_style_t style=RADIAL );
+
+//----------------------------------------------------------------------------
+
     void fill_arc_helper(int32_t cx, int32_t cy, int32_t oradius_x, int32_t iradius_x, int32_t oradius_y, int32_t iradius_y, float start, float end);
     void draw_bezier_helper(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void draw_bitmap(int32_t x, int32_t y, const uint8_t *bitmap, int32_t w, int32_t h, uint32_t fg_rawcolor, uint32_t bg_rawcolor = ~0u);
@@ -1122,6 +1395,7 @@ namespace lgfx
     size_t draw_string(const char *string, int32_t x, int32_t y, textdatum_t datum, const IFont* font = nullptr);
     int32_t text_width(const char *string, const IFont* font, FontMetrics* metrics);
     bool load_font(lgfx::DataWrapper* data);
+    bool load_font_with_path(const char *path);
 
     static void tmpBeginTransaction(LGFXBase* lgfx)
     {
@@ -1140,7 +1414,8 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  /// LovyanGFXクラス。ファイルシステム等、利用環境側のinclude順に依存する機能はLGFX_FILESYSTEM_Supportから継承する。;
+  /// @brief LovyanGFX class.
+  /// that depend on the include order of the environment, such as file system, are inherited from LGFX_FILESYSTEM_Support.
   class LovyanGFX : public
   #ifdef LGFX_FILESYSTEM_SUPPORT_HPP_
       LGFX_FILESYSTEM_Support<

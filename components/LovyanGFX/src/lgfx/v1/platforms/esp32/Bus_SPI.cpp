@@ -18,14 +18,11 @@ Contributors:
 #if defined (ESP_PLATFORM)
 #include <sdkconfig.h>
 
-/// ESP32-S3をターゲットにした際にREG_SPI_BASEが定義されていなかったので応急処置 ;
-#if defined ( CONFIG_IDF_TARGET_ESP32S3 )
- #define REG_SPI_BASE(i)   (DR_REG_SPI1_BASE + (((i)>1) ? (((i)* 0x1000) + 0x20000) : (((~(i)) & 1)* 0x1000 )))
-#elif defined ( CONFIG_IDF_TARGET_ESP32 ) || !defined ( CONFIG_IDF_TARGET )
+#include "Bus_SPI.hpp"
+
+#if defined ( CONFIG_IDF_TARGET_ESP32 ) || !defined ( CONFIG_IDF_TARGET )
  #define LGFX_SPIDMA_WORKAROUND
 #endif
-
-#include "Bus_SPI.hpp"
 
 #include "../../misc/pixelcopy.hpp"
 
@@ -46,42 +43,38 @@ Contributors:
 #if defined (ARDUINO) // Arduino ESP32
  #include <soc/periph_defs.h>
  #include <esp32-hal-cpu.h>
-#else
- #include <driver/spi_master.h>
-
- #if defined ( CONFIG_IDF_TARGET_ESP32S3 )
-  #if __has_include (<esp32s3/rom/gpio.h>)
-    #include <esp32s3/rom/gpio.h>
-  #else
-    #include <rom/gpio.h>
-  #endif
- #elif defined ( CONFIG_IDF_TARGET_ESP32S2 )
-  #if __has_include (<esp32s2/rom/gpio.h>)
-    #include <esp32s2/rom/gpio.h>
-  #else
-    #include <rom/gpio.h>
-  #endif
- #else
-  #if __has_include (<esp32/rom/gpio.h>)
-    #include <esp32/rom/gpio.h>
-  #else
-    #include <rom/gpio.h>
-  #endif
- #endif
 #endif
+#include <driver/spi_master.h>
+
+#if defined ESP_IDF_VERSION_MAJOR && ESP_IDF_VERSION_MAJOR >= 5
+    #include <rom/gpio.h> // dispatched by core
+#elif defined ( CONFIG_IDF_TARGET_ESP32S3 ) && __has_include (<esp32s3/rom/gpio.h>)
+   #include <esp32s3/rom/gpio.h>  // dispatched by config
+#elif defined ( CONFIG_IDF_TARGET_ESP32S2 ) && __has_include (<esp32s2/rom/gpio.h>)
+   #include <esp32s2/rom/gpio.h>  // dispatched by config
+#elif defined ( CONFIG_IDF_TARGET_ESP32 ) && __has_include (<esp32/rom/gpio.h>)
+   #include <esp32/rom/gpio.h>
+#else
+   #include <rom/gpio.h> // dispatched by core
+#endif   
 
 #ifndef SPI_PIN_REG
  #define SPI_PIN_REG SPI_MISC_REG
 #endif
 
-#if defined (SOC_GDMA_SUPPORTED)  // for C3/S3
+#if defined (SOC_GDMA_SUPPORTED)  // for C3/C6/S3
  #include <soc/gdma_channel.h>
  #include <soc/gdma_reg.h>
+ #include <soc/gdma_struct.h>
  #if !defined DMA_OUT_LINK_CH0_REG
   #define DMA_OUT_LINK_CH0_REG       GDMA_OUT_LINK_CH0_REG
   #define DMA_OUTFIFO_STATUS_CH0_REG GDMA_OUTFIFO_STATUS_CH0_REG
   #define DMA_OUTLINK_START_CH0      GDMA_OUTLINK_START_CH0
-  #define DMA_OUTFIFO_EMPTY_CH0      GDMA_OUTFIFO_EMPTY_L3_CH0
+  #if defined (GDMA_OUTFIFO_EMPTY_L3_CH0)
+   #define DMA_OUTFIFO_EMPTY_CH0      GDMA_OUTFIFO_EMPTY_L3_CH0
+  #else
+   #define DMA_OUTFIFO_EMPTY_CH0      GDMA_OUTFIFO_EMPTY_CH0
+  #endif
  #endif
 #endif
 
@@ -159,8 +152,8 @@ namespace lgfx
 
     if (assigned_dma_ch >= 0)
     { // DMAチャンネルが特定できたらそれを使用する;
-      _spi_dma_out_link_reg  = reg(DMA_OUT_LINK_CH0_REG       + assigned_dma_ch * 0xC0);
-      _spi_dma_outstatus_reg = reg(DMA_OUTFIFO_STATUS_CH0_REG + assigned_dma_ch * 0xC0);
+      _spi_dma_out_link_reg  = reg(DMA_OUT_LINK_CH0_REG       + assigned_dma_ch * sizeof(GDMA.channel[0]));
+      _spi_dma_outstatus_reg = reg(DMA_OUTFIFO_STATUS_CH0_REG + assigned_dma_ch * sizeof(GDMA.channel[0]));
     }
 #elif defined ( CONFIG_IDF_TARGET_ESP32 ) || !defined ( CONFIG_IDF_TARGET )
 
@@ -178,7 +171,7 @@ namespace lgfx
   {
     if (pin >= GPIO_NUM_MAX) return;
     gpio_reset_pin( (gpio_num_t)pin);
-    gpio_matrix_out((gpio_num_t)pin, 0x100, 0, 0);
+    gpio_matrix_out((gpio_num_t)pin, SIG_GPIO_OUT_IDX, 0, 0);
     // gpio_matrix_in には、ArduinoESP32 v1.0.x系では重大なバグがある。(無関係なピンに対して設定変更が行われることがある)
     // gpio_matrix_in( (gpio_num_t)pin, 0x100, 0   );
   }
@@ -211,7 +204,27 @@ namespace lgfx
     }
 
     auto spi_mode = _cfg.spi_mode;
-    uint32_t pin  = (spi_mode & 2) ? SPI_CK_IDLE_EDGE : 0;
+    uint32_t pin = (spi_mode & 2) ? SPI_CK_IDLE_EDGE : 0;
+    pin = pin
+#if defined ( SPI_CS0_DIS )
+            | SPI_CS0_DIS
+#endif
+#if defined ( SPI_CS1_DIS )
+            | SPI_CS1_DIS
+#endif
+#if defined ( SPI_CS2_DIS )
+            | SPI_CS2_DIS
+#endif
+#if defined ( SPI_CS3_DIS )
+            | SPI_CS3_DIS
+#endif
+#if defined ( SPI_CS4_DIS )
+            | SPI_CS4_DIS
+#endif
+#if defined ( SPI_CS5_DIS )
+            | SPI_CS5_DIS
+#endif
+    ;
 
     if (_cfg.use_lock) spi::beginTransaction(_cfg.spi_host);
 
@@ -424,10 +437,13 @@ namespace lgfx
         len = (limit << 1) <= length ? limit : length;
         if (limit <= 256) limit <<= 1;
         auto dmabuf = _flip_buffer.getBuffer(len * bytes);
+        if (dmabuf == nullptr) {
+          break;
+        }
         param->fp_copy(dmabuf, 0, len, param);
         writeBytes(dmabuf, len * bytes, true, true);
       } while (length -= len);
-      return;
+      if (length == 0) return;
     }
 
 /// ESP32-C3 で HIGHPART を使用すると異常動作するため分岐する;
@@ -531,10 +547,12 @@ namespace lgfx
     {
       if (false == use_dma && length < 1024)
       {
-        use_dma = true;
         auto buf = _flip_buffer.getBuffer(length);
-        memcpy(buf, data, length);
-        data = buf;
+        if (buf) {
+          memcpy(buf, data, length);
+          data = buf;
+          use_dma = true;
+        }
       }
       if (use_dma)
       {
@@ -590,6 +608,7 @@ namespace lgfx
           goto label_start;
           do
           {
+            vTaskDelay(1 / portTICK_PERIOD_MS);
             while (*cmd & SPI_USR) {}
 label_start:
             exec_spi();
@@ -879,7 +898,9 @@ label_start:
         if (0 == (length -= len1)) {
           len2 = len1;
           wait_spi();
-          memcpy(dst, (void*)spi_w0_reg, (len2 + 3) & ~3u);
+          uint8_t tmp[32];
+          memcpy(tmp, (void*)spi_w0_reg, (len2 + 3) & ~3u);
+          memcpy(dst, tmp, len2);
         } else {
           if (length < len1) {
             len1 = length;

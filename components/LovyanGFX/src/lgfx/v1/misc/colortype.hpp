@@ -29,6 +29,8 @@ namespace lgfx
 {
  inline namespace v1
  {
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Warray-bounds"
 //----------------------------------------------------------------------------
 
 #if defined ( _MSVC_LANG )
@@ -417,7 +419,7 @@ namespace lgfx
     static constexpr color_depth_t depth = argb8888_4Byte;
     constexpr bgra8888_t(void) : raw{0} {};
     constexpr bgra8888_t(const bgra8888_t&) = default;
-    constexpr bgra8888_t(uint8_t r8, uint8_t g8, uint8_t b8) : r(r8), g(g8), b(b8) {}
+    constexpr bgra8888_t(uint8_t r8, uint8_t g8, uint8_t b8) : a(255), r(r8), g(g8), b(b8) {}
     constexpr bgra8888_t(uint8_t a8, uint8_t r8, uint8_t g8, uint8_t b8) : a(a8), r(r8), g(g8), b(b8) {}
     constexpr bgra8888_t(uint32_t bgra8888) : raw(bgra8888) {}
     inline bgra8888_t& operator=(uint32_t rhs) { *reinterpret_cast<uint32_t*>(this) = rhs; return *this; }
@@ -936,9 +938,18 @@ namespace lgfx
     uint_fast16_t _b8a;
   };
 
+
+  struct colors_t
+  {
+    const rgb888_t *colors;
+    const uint32_t count;
+  };
+
+
 //----------------------------------------------------------------------------
 #undef LGFX_INLINE
 
+# pragma GCC diagnostic pop
  }
 }
 
