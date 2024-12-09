@@ -2296,6 +2296,7 @@ CONFIG_LV_DISP_ROT_MAX_BUF=10240
 #
 # CONFIG_LV_USE_GPU_ARM2D is not set
 # CONFIG_LV_USE_GPU_STM32_DMA2D is not set
+# CONFIG_LV_USE_GPU_RA6M3_G2D is not set
 # CONFIG_LV_USE_GPU_SWM341_DMA2D is not set
 # CONFIG_LV_USE_GPU_NXP_PXP is not set
 # CONFIG_LV_USE_GPU_NXP_VG_LITE is not set
@@ -2497,12 +2498,14 @@ CONFIG_LV_USE_GRID=y
 # CONFIG_LV_USE_FS_POSIX is not set
 # CONFIG_LV_USE_FS_WIN32 is not set
 # CONFIG_LV_USE_FS_FATFS is not set
+# CONFIG_LV_USE_FS_LITTLEFS is not set
 # CONFIG_LV_USE_PNG is not set
 # CONFIG_LV_USE_BMP is not set
 # CONFIG_LV_USE_SJPG is not set
 # CONFIG_LV_USE_GIF is not set
 # CONFIG_LV_USE_QRCODE is not set
 # CONFIG_LV_USE_FREETYPE is not set
+# CONFIG_LV_USE_TINY_TTF is not set
 # CONFIG_LV_USE_RLOTTIE is not set
 # CONFIG_LV_USE_FFMPEG is not set
 # end of 3rd Party Libraries
